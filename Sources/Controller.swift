@@ -328,6 +328,16 @@ open class FloatingPanelController: UIViewController {
 
         self.view = view as UIView
     }
+    
+    open override func viewDidLoad() {
+        super.viewDidLoad()
+
+        // Detect swipe back gesture to let Core handle vertical scroll-locks.
+        let edgeSwipeGestureRecognizer = UIScreenEdgePanGestureRecognizer(target: self, action: #selector(handleEdgeSwipeGesture))
+        edgeSwipeGestureRecognizer.edges = .left
+        edgeSwipeGestureRecognizer.delegate = self
+        view.addGestureRecognizer(edgeSwipeGestureRecognizer)
+    }
 
     open override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -725,6 +735,21 @@ extension FloatingPanelController {
         return UIViewPropertyAnimator(duration: 0.0,
                                       timingParameters: timingParameters)
     }
+}
+
+extension FloatingPanelController: UIGestureRecognizerDelegate {
+    
+    @objc func handleEdgeSwipeGesture(_ gesture: UIScreenEdgePanGestureRecognizer) {
+        switch gesture.state {
+        case .began, .changed:
+            floatingPanel.isSwipingBack = true
+        case .ended, .cancelled:
+            floatingPanel.isSwipingBack = false
+        default:
+            break
+        }
+    }
+
 }
 
 // MARK: - Swizzling

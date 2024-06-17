@@ -1,6 +1,7 @@
 // Copyright 2018-Present Shin Yamamoto. All rights reserved. MIT license.
 
 import UIKit
+import WebKit
 import os.log
 
 ///
@@ -20,24 +21,44 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     let layoutAdapter: LayoutAdapter
     let behaviorAdapter: BehaviorAdapter
 
-    weak var scrollView: UIScrollView? {
-        didSet {
-            oldValue?.panGestureRecognizer.removeTarget(self, action: nil)
-            scrollView?.panGestureRecognizer.addTarget(self, action: #selector(handle(panGesture:)))
+    // _scrollView is the main UIScrollView
+    weak var _scrollView: UIScrollView? = nil
+    // innerScrollView is used to hold WKWebView's inner scroll view. It contains correct content-offset.
+    private weak var _innerScrollView: UIScrollView? = nil
+    var scrollView: UIScrollView? {
+        get {
+            return _innerScrollView ?? _scrollView
+        }
+        set {
+            _scrollView?.panGestureRecognizer.removeTarget(self, action: nil)
+            newValue?.panGestureRecognizer.addTarget(self, action: #selector(handle(panGesture:)))
             if let cur = scrollView {
-                if oldValue == nil {
+                if _scrollView == nil {
                     initialScrollOffset = cur.contentOffset
                     scrollBounce = cur.bounces
                     scrollIndictorVisible = cur.showsVerticalScrollIndicator
                 }
                 scrollLocked = false
             } else {
-                if let pre = oldValue {
+                if let pre = _scrollView {
                     pre.isDirectionalLockEnabled = false
                     pre.bounces = scrollBounce
                     pre.showsVerticalScrollIndicator = scrollIndictorVisible
                 }
             }
+            _scrollView = newValue
+        }
+    }
+    
+    // Called to find inner scroll view to handle WKWebView scroll views.
+    private func updateInnerScrollView() {
+        guard let _scrollView else {
+            return
+        }
+        let newScrollView = findScrollView(in: _scrollView, isParent: true)
+        if (newScrollView != _innerScrollView) {
+            _innerScrollView = newScrollView
+            _innerScrollView?.panGestureRecognizer.addTarget(self, action: #selector(handle(panGesture:)))
         }
     }
 
@@ -74,8 +95,9 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     private var initialScrollOffset: CGPoint = .zero
     private var scrollBounce = false
     private var scrollIndictorVisible = false
-    private var scrollBounceThreshold: CGFloat = -30.0
+    private var scrollBounceThreshold: CGFloat = -30
     private var scrollLocked = false
+    var isSwipingBack = false
 
     // MARK: - Interface
 
@@ -292,7 +314,8 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             }
             // all gestures of the tracking scroll view should be recognized in parallel
             // and handle them in self.handle(panGesture:)
-            return scrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false
+            return (_scrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false) ||
+                (_innerScrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false)
         default:
             // Should recognize tap/long press gestures in parallel when the surface view is at an anchor position.
             let adapterY = layoutAdapter.position(for: state)
@@ -323,31 +346,44 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer == panGestureRecognizer else { return false }
 
-        // Should begin the pan gesture without waiting for the tracking scroll view's gestures.
-        // `scrollView.gestureRecognizers` can contains the following gestures
-        // * UIScrollViewDelayedTouchesBeganGestureRecognizer
-        // * UIScrollViewPanGestureRecognizer (scrollView.panGestureRecognizer)
-        // * _UIDragAutoScrollGestureRecognizer
-        // * _UISwipeActionPanGestureRecognizer
-        // * UISwipeDismissalGestureRecognizer
-        if let scrollView = scrollView {
-            // On short contents scroll, `_UISwipeActionPanGestureRecognizer` blocks
-            // the panel's pan gesture if not returns false
-            if let scrollGestureRecognizers = scrollView.gestureRecognizers,
-                scrollGestureRecognizers.contains(otherGestureRecognizer) {
-                switch otherGestureRecognizer {
-                case scrollView.panGestureRecognizer:
-                    if surfaceView.grabberAreaContains(gestureRecognizer.location(in: surfaceView)) {
+        // Workaround to fix unexpected scrolling issues on iOS 17.4 due to WKWebView gesture changes!
+        if _scrollView?.superview is WKWebView {
+            if otherGestureRecognizer is UIPanGestureRecognizer {
+                updateInnerScrollView()
+            }
+        }
+
+        for sv in [_innerScrollView, _scrollView] {
+            // Should begin the pan gesture without waiting for the tracking scroll view's gestures.
+            // `scrollView.gestureRecognizers` can contains the following gestures
+            // * UIScrollViewDelayedTouchesBeganGestureRecognizer
+            // * UIScrollViewPanGestureRecognizer (scrollView.panGestureRecognizer)
+            // * _UIDragAutoScrollGestureRecognizer
+            // * _UISwipeActionPanGestureRecognizer
+            // * UISwipeDismissalGestureRecognizer
+            if let scrollView = sv {
+                // On short contents scroll, `_UISwipeActionPanGestureRecognizer` blocks
+                // the panel's pan gesture if not returns false
+                
+                if let scrollGestureRecognizers = scrollView.gestureRecognizers,
+                   scrollGestureRecognizers.contains(otherGestureRecognizer) {
+                    switch otherGestureRecognizer {
+                    case scrollView.panGestureRecognizer:
+                        if surfaceView.grabberAreaContains(gestureRecognizer.location(in: surfaceView)) {
+                            return false
+                        }
+                        
+                        guard isScrollable(state: state) else { return false }
+                        
+                        // The condition where offset > 0 must not be included here. Because it will stop recognizing
+                        // the panel pan gesture if a user starts scrolling content from an offset greater than 0.
+                        if let _innerScrollView, (allowScrollPanGesture(of: _innerScrollView) { offset in offset <= scrollBounceThreshold  }) {
+                            return true
+                        }
+                        return allowScrollPanGesture(of: _scrollView!) { offset in offset <= scrollBounceThreshold  }
+                    default:
                         return false
                     }
-
-                    guard isScrollable(state: state) else { return false }
-
-                    // The condition where offset > 0 must not be included here. Because it will stop recognizing
-                    // the panel pan gesture if a user starts scrolling content from an offset greater than 0.
-                    return allowScrollPanGesture(of: scrollView) { offset in offset <= scrollBounceThreshold  }
-                default:
-                    return false
                 }
             }
         }
@@ -389,8 +425,8 @@ class Core: NSObject, UIGestureRecognizerDelegate {
 
     @objc func handle(panGesture: UIPanGestureRecognizer) {
         switch panGesture {
-        case scrollView?.panGestureRecognizer:
-            guard let scrollView = scrollView else { return }
+        case scrollView?.panGestureRecognizer, _innerScrollView?.panGestureRecognizer:
+            let scrollView = panGesture == scrollView?.panGestureRecognizer ? _scrollView! : _innerScrollView!
 
             let velocity = value(of: panGesture.velocity(in: panGesture.view))
             let location = panGesture.location(in: surfaceView)
@@ -587,6 +623,12 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     private func shouldScrollViewHandleTouch(_ scrollView: UIScrollView?, point: CGPoint, velocity: CGFloat) -> Bool {
         // When no scrollView, nothing to handle.
         guard let scrollView = scrollView, scrollView.frame.contains(initialLocation) else { return false }
+
+        if isSwipingBack {
+            // If WKWebView content be small and not scrollable, _innerScrollView won't be found.
+            //  In this situation, panGestureRecognizer is hard to track, so we should prevent swipe back separately.
+            return true
+        }
 
         // Prevents moving a panel on swipe actions using _UISwipeActionPanGestureRecognizer.
         // [Warning] Do not apply this to WKWebView. Since iOS 17.4, WKWebView has an additional pan
@@ -1067,6 +1109,9 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func lockScrollView(strict: Bool = false) {
+        if _innerScrollView != nil {
+            return // no not lock webViews :)
+        }
         guard let scrollView = scrollView else { return }
 
         if scrollLocked {
@@ -1432,4 +1477,17 @@ extension FloatingPanelController {
     var transitionAnimator: UIViewPropertyAnimator? {
         return self.floatingPanel.transitionAnimator
     }
+}
+
+// Function to find UIScrollView in a UIView's subviews
+fileprivate func findScrollView(in view: UIView, isParent: Bool = false) -> UIScrollView? {
+    if let scrollView = view as? UIScrollView, !isParent {
+        return scrollView
+    }
+    for subview in view.subviews {
+        if let found = findScrollView(in: subview) {
+            return found
+        }
+    }
+    return nil
 }
