@@ -55,7 +55,21 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         guard let _scrollView else {
             return
         }
-        let newScrollView = findScrollView(in: _scrollView, isParent: true)
+        // Function to find UIScrollViews in a web-view's subviews
+        var foundScrollViews = [UIScrollView]()
+        func findScrollView(in view: UIView, isParent: Bool = false) {
+            if isParent {
+                foundScrollViews = []
+            }
+            if let scrollView = view as? UIScrollView, !isParent {
+                foundScrollViews.append(scrollView)
+            }
+            for subview in view.subviews {
+                findScrollView(in: subview)
+            }
+        }
+        findScrollView(in: _scrollView, isParent: true)
+        let newScrollView = foundScrollViews.last
         if (newScrollView != _innerScrollView) {
             _innerScrollView = newScrollView
             _innerScrollView?.panGestureRecognizer.addTarget(self, action: #selector(handle(panGesture:)))
@@ -1234,7 +1248,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
 
     func isScrollable(state: FloatingPanelState) -> Bool {
         guard let scrollView = scrollView else { return false }
-        if let fpc = ownerVC, 
+        if let fpc = ownerVC,
             let scrollable = fpc.delegate?.floatingPanel?(fpc, shouldAllowToScroll: scrollView, in: state)
         {
             return scrollable
@@ -1503,17 +1517,4 @@ extension FloatingPanelController {
     var transitionAnimator: UIViewPropertyAnimator? {
         return self.floatingPanel.transitionAnimator
     }
-}
-
-// Function to find UIScrollView in a UIView's subviews
-fileprivate func findScrollView(in view: UIView, isParent: Bool = false) -> UIScrollView? {
-    if let scrollView = view as? UIScrollView, !isParent {
-        return scrollView
-    }
-    for subview in view.subviews {
-        if let found = findScrollView(in: subview) {
-            return found
-        }
-    }
-    return nil
 }
