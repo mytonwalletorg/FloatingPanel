@@ -111,7 +111,6 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     private var scrollIndictorVisible = false
     private var scrollBounceThreshold: CGFloat = -30
     private var scrollLocked = false
-    var isSwipingBack = false
 
     // MARK: - Interface
 
@@ -437,6 +436,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         ownerVC?.remove()
     }
 
+    private var isScrollingHorizontally = false
     @objc func handle(panGesture: UIPanGestureRecognizer) {
         switch panGesture {
         case scrollView?.panGestureRecognizer, _innerScrollView?.panGestureRecognizer:
@@ -579,6 +579,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             interruptAnimationIfNeeded()
 
             if panGesture.state == .began {
+                isScrollingHorizontally = abs(velocity.x) > abs(velocity.y)
                 panningBegan(at: location)
                 return
             }
@@ -604,6 +605,8 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                                                                   allowsRubberBanding: behaviorAdapter.allowsRubberBanding(for:))
                 }
                 panningEnd(with: translation, velocity: velocity)
+                // Reset the scroll direction lock
+                isScrollingHorizontally = false
             default:
                 break
             }
@@ -640,12 +643,6 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         // When no scrollView, nothing to handle.
         guard let scrollView = scrollView, scrollView.frame.contains(initialLocation) else { return false }
 
-        if isSwipingBack {
-            // If WKWebView content be small and not scrollable, _innerScrollView won't be found.
-            //  In this situation, panGestureRecognizer is hard to track, so we should prevent swipe back separately.
-            return true
-        }
-
         // Prevents moving a panel on swipe actions using _UISwipeActionPanGestureRecognizer.
         // [Warning] Do not apply this to WKWebView. Since iOS 17.4, WKWebView has an additional pan
         // gesture recognizer besides UIScrollViewPanGestureRecognizer. Applying this to WKWebView
@@ -661,6 +658,11 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                     return true
                 }
             }
+        }
+        
+        // If is scrolling horizontally, consider it as a swipe back!
+        if isScrollingHorizontally {
+            return true
         }
 
         guard
@@ -794,7 +796,11 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             let distToHidden = CGFloat(abs(currentPos - layoutAdapter.position(for: .hidden)))
             switch layoutAdapter.position {
             case .top, .bottom:
-                removalVector = (distToHidden != 0) ? CGVector(dx: 0.0, dy: velocity.y/distToHidden) : .zero
+                if isScrollingHorizontally {
+                    removalVector = .zero
+                } else {
+                    removalVector = (distToHidden != 0) ? CGVector(dx: 0.0, dy: velocity.y/distToHidden) : .zero
+                }
             case .left, .right:
                 removalVector = (distToHidden != 0) ? CGVector(dx: velocity.x/distToHidden, dy: 0.0) : .zero
             }
