@@ -686,7 +686,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                 return true
             }
         case .bottom, .right:
-            if  offset > 0.0 {
+            if  offset > 0.0 || (scrollView == _innerScrollView && offset == 0) {
                 return true
             }
             if velocity <= 0, offset < 0.0 {
