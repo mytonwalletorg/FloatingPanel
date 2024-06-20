@@ -265,6 +265,16 @@ open class FloatingPanelController: UIViewController {
 
     private var _contentViewController: UIViewController?
 
+    public var isAnimating: Bool = false {
+        didSet {
+            if isAnimating {
+                floatingPanel.lockAllScrollViews()
+            } else {
+                floatingPanel.unlockAllScrollViews()
+            }
+        }
+    }
+
     private(set) var floatingPanel: Core!
     private var preSafeAreaInsets: UIEdgeInsets = .zero // Capture the latest one
     private var safeAreaInsetsObservation: NSKeyValueObservation?
