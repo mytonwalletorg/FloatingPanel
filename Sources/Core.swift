@@ -71,7 +71,13 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         findScrollView(in: _scrollView, isParent: true)
         let newScrollView = foundScrollViews.last
         if (newScrollView != _innerScrollView) {
+            // Check if existing innerScrollView was locked
+            let wasInnerLocked = _innerScrollView?.bounces == false
             _innerScrollView = newScrollView
+            if wasInnerLocked {
+                // Lock the new one also.
+                lockAllScrollViews(isInnerScrollViewUpdated: true)
+            }
             _innerScrollView?.panGestureRecognizer.addTarget(self, action: #selector(handle(panGesture:)))
         }
     }
@@ -171,6 +177,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         interruptAnimationIfNeeded()
 
         if animated {
+            lockAllScrollViews()
             let updateScrollView: () -> Void = { [weak self] in
                 guard let self = self else { return }
                 if self.isScrollable(state: self.state), 0 == self.layoutAdapter.offset(from: self.state) {
@@ -178,6 +185,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                 } else {
                     self.lockScrollView()
                 }
+                unlockAllScrollViews()
             }
 
             let animator: UIViewPropertyAnimator
@@ -1129,10 +1137,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func lockScrollView(strict: Bool = false) {
-        if _innerScrollView != nil {
-            return // no not lock webViews :)
-        }
-        guard let scrollView = scrollView else { return }
+        guard let scrollView = _scrollView else { return }
 
         if scrollLocked {
             os_log(msg, log: devLog, type: .debug, "Already scroll locked")
@@ -1164,7 +1169,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
     }
 
     private func unlockScrollView() {
-        guard let scrollView = scrollView else { return }
+        guard let scrollView = _scrollView else { return }
         if !scrollLocked {
             os_log(msg, log: devLog, type: .debug, "Already scroll unlocked.")
             return
@@ -1179,6 +1184,31 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             scrollView.showsVerticalScrollIndicator = scrollIndictorVisible
         case .left, .right:
             scrollView.showsHorizontalScrollIndicator = scrollIndictorVisible
+        }
+    }
+    
+    // Locks all the scrollviews (Used to lock when animating)
+    private var lockedInnerScrollViews = [UIScrollView]()
+    func lockAllScrollViews(isInnerScrollViewUpdated: Bool = false) {
+        // First update inner scroll view
+        if !isInnerScrollViewUpdated {
+            updateInnerScrollView()
+        }
+        // Now lock the new inner scroll view
+        guard let _innerScrollView else {return}
+        if !lockedInnerScrollViews.contains(_innerScrollView) {
+            _innerScrollView.isUserInteractionEnabled = false
+            lockedInnerScrollViews.append(_innerScrollView)
+            _scrollView?.isUserInteractionEnabled = false
+        }
+    }
+    func unlockAllScrollViews() {
+        if lockedInnerScrollViews.isEmpty {
+            return
+        }
+        _scrollView?.isUserInteractionEnabled = true
+        for _innerScrollView in lockedInnerScrollViews {
+            _innerScrollView.isUserInteractionEnabled = true
         }
     }
 
