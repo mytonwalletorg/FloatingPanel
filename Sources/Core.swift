@@ -49,7 +49,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             _scrollView = newValue
         }
     }
-    
+
     // Called to find inner scroll view to handle WKWebView scroll views.
     private func updateInnerScrollView() {
         guard let _scrollView else {
@@ -336,7 +336,8 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             // all gestures of the tracking scroll view should be recognized in parallel
             // and handle them in self.handle(panGesture:)
             return (_scrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false) ||
-                (_innerScrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false)
+                (_innerScrollView?.contentSize.width ?? 0 >= _scrollView?.contentSize.width ?? 0 &&
+                 _innerScrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false)
         default:
             // Should recognize tap/long press gestures in parallel when the surface view is at an anchor position.
             let adapterY = layoutAdapter.position(for: state)
@@ -385,7 +386,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             if let scrollView = sv {
                 // On short contents scroll, `_UISwipeActionPanGestureRecognizer` blocks
                 // the panel's pan gesture if not returns false
-                
+
                 if let scrollGestureRecognizers = scrollView.gestureRecognizers,
                    scrollGestureRecognizers.contains(otherGestureRecognizer) {
                     switch otherGestureRecognizer {
@@ -393,9 +394,9 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                         if surfaceView.grabberAreaContains(gestureRecognizer.location(in: surfaceView)) {
                             return false
                         }
-                        
+
                         guard isScrollable(state: state) else { return false }
-                        
+
                         // The condition where offset > 0 must not be included here. Because it will stop recognizing
                         // the panel pan gesture if a user starts scrolling content from an offset greater than 0.
                         if let _innerScrollView, (allowScrollPanGesture(of: _innerScrollView) { offset in offset <= scrollBounceThreshold  }) {
@@ -667,7 +668,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                 }
             }
         }
-        
+
         // If is scrolling horizontally, consider it as a swipe back!
         if isScrollingHorizontally {
             return true
@@ -1207,7 +1208,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             scrollView.showsHorizontalScrollIndicator = scrollIndictorVisible
         }
     }
-    
+
     // Locks all the scrollviews (Used to lock when animating)
     private var lockedInnerScrollViews = [UIScrollView]()
     func lockAllScrollViews(isInnerScrollViewUpdated: Bool = false) {
