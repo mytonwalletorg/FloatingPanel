@@ -336,7 +336,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
             // all gestures of the tracking scroll view should be recognized in parallel
             // and handle them in self.handle(panGesture:)
             return (_scrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false) ||
-                (_innerScrollView?.contentSize.width ?? 0 >= _scrollView?.contentSize.width ?? 0 &&
+                ((_innerScrollView?.contentSize.width ?? 0) + 32 >= _scrollView?.contentSize.width ?? 0 &&
                  _innerScrollView?.gestureRecognizers?.contains(otherGestureRecognizer) ?? false)
         default:
             // Should recognize tap/long press gestures in parallel when the surface view is at an anchor position.
