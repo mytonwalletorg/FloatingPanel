@@ -72,8 +72,8 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         let newScrollView = foundScrollViews.last
         if (newScrollView != _innerScrollView) {
             // Check if existing innerScrollView was locked
-            let wasInnerLocked = _innerScrollView?.bounces == false
             _innerScrollView = newScrollView
+            let wasInnerLocked = !lockedInnerScrollViews.isEmpty
             if wasInnerLocked {
                 // Lock the new one also.
                 lockAllScrollViews(isInnerScrollViewUpdated: true)
@@ -1232,6 +1232,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         for _innerScrollView in lockedInnerScrollViews {
             _innerScrollView.isUserInteractionEnabled = true
         }
+        lockedInnerScrollViews.removeAll()
     }
 
     private var shouldLooselyLockScrollView: Bool {
