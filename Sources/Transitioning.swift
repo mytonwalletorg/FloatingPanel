@@ -19,10 +19,13 @@ class ModalTransition: NSObject, UIViewControllerTransitioningDelegate {
 }
 
 class PresentationController: UIPresentationController {
+    private var passthroughView: PassthroughView?
+
     override func presentationTransitionWillBegin() {
         // Must call here even if duplicating on in containerViewWillLayoutSubviews()
         // Because it let the panel present correctly with the presentation animation
         addFloatingPanel()
+        addPassthroughView()
     }
 
     override func presentationTransitionDidEnd(_ completed: Bool) {
@@ -40,6 +43,7 @@ class PresentationController: UIPresentationController {
             }
             fpc.view.removeFromSuperview()
         }
+        passthroughView?.removeFromSuperview()
     }
 
     override func containerViewWillLayoutSubviews() {
@@ -62,10 +66,20 @@ class PresentationController: UIPresentationController {
 
         // Forward touch events to the presenting view controller
         (fpc.view as? PassthroughView)?.eventForwardingView = presentingViewController.view
+        passthroughView?.eventForwardingView = presentingViewController.view
     }
 
     @objc func handleBackdrop(tapGesture: UITapGestureRecognizer) {
         presentedViewController.dismiss(animated: true, completion: nil)
+    }
+
+    private func addPassthroughView() {
+        guard let containerView = self.containerView else { return }
+
+        passthroughView = PassthroughView()
+        passthroughView?.frame = containerView.bounds
+        passthroughView?.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        containerView.addSubview(passthroughView!)
     }
 
     private func addFloatingPanel() {
