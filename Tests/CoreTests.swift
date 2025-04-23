@@ -863,11 +863,18 @@ class CoreTests: XCTestCase {
                 customSafeAreaInsets
             }
         }
+        class PanelDelegate: FloatingPanelControllerDelegate {
+            func floatingPanel(_ fpc: FloatingPanelController, shouldAllowToScroll scrollView: UIScrollView, in state: FloatingPanelState) -> Bool {
+                return state == .full || state == .half
+            }
+        }
+        let delegate = PanelDelegate()
 
         do {
             let scrollView = CustomScrollView()
             scrollView.customSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: 34, right: 0)
             let fpc = FloatingPanelController()
+            fpc.delegate = delegate
             fpc.track(scrollView: scrollView)
             fpc.layout = FloatingPanelBottomLayout()
             fpc.contentInsetAdjustmentBehavior = .always
@@ -894,6 +901,7 @@ class CoreTests: XCTestCase {
             let scrollView = CustomScrollView()
             scrollView.customSafeAreaInsets = UIEdgeInsets(top: 91, left: 0, bottom: 0, right: 0)
             let fpc = FloatingPanelController()
+            fpc.delegate = delegate
             fpc.track(scrollView: scrollView)
             fpc.layout = FloatingPanelTopPositionedLayout()
             fpc.contentInsetAdjustmentBehavior = .always
@@ -914,6 +922,68 @@ class CoreTests: XCTestCase {
                 scrollView.customSafeAreaInsets
             )
         }
+    }
+
+    func test_adjustScrollContentInsetIfNeeded_normal() {
+        class CustomScrollView: UIScrollView {
+            var customSafeAreaInsets: UIEdgeInsets = .zero
+            override var safeAreaInsets: UIEdgeInsets {
+                customSafeAreaInsets
+            }
+        }
+        do {
+            let scrollView = CustomScrollView()
+            scrollView.customSafeAreaInsets = UIEdgeInsets(top: 42, left: 0, bottom: 34, right: 0)
+            let fpc = FloatingPanelController()
+            fpc.track(scrollView: scrollView)
+            fpc.layout = FloatingPanelBottomLayout()
+            fpc.contentInsetAdjustmentBehavior = .always
+            fpc.contentMode = .static
+            fpc.showForTest()
+
+            fpc.move(to: .half, animated: false)
+            fpc.floatingPanel.adjustScrollContentInsetIfNeeded()
+
+            XCTAssertEqual(
+                scrollView.contentInset,
+                UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+            )
+
+            fpc.move(to: .full, animated: false)
+            fpc.floatingPanel.adjustScrollContentInsetIfNeeded()
+            XCTAssertEqual(
+                scrollView.contentInset,
+                UIEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+            )
+        }
+    }
+
+    func test_initial_scroll_offset_reset() {
+        let fpc = FloatingPanelController()
+        let scrollView = UIScrollView()
+        fpc.layout = FloatingPanelBottomLayout()
+        fpc.track(scrollView: scrollView)
+        fpc.showForTest()
+
+        fpc.move(to: .full, animated: false)
+
+        fpc.panGestureRecognizer.state = .began
+        fpc.floatingPanel.handle(panGesture: fpc.panGestureRecognizer)
+
+        fpc.panGestureRecognizer.state = .cancelled
+        fpc.floatingPanel.handle(panGesture: fpc.panGestureRecognizer)
+
+        waitRunLoop(secs: 1.0)
+
+        let expect = CGPoint(x: 0, y: 100)
+
+        scrollView.setContentOffset(expect, animated: false)
+
+        fpc.move(to: .half, animated: true)
+
+        waitRunLoop(secs: 1.0)
+
+        XCTAssertEqual(expect, scrollView.contentOffset)
     }
 
     func test_handleGesture_endWithoutAttraction() throws {
