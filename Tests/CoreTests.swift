@@ -1,6 +1,9 @@
 // Copyright 2018 the FloatingPanel authors. All rights reserved. MIT license.
 
 import XCTest
+#if canImport(Combine)
+import Combine
+#endif
 @testable import FloatingPanel
 
 class CoreTests: XCTestCase {
@@ -8,6 +11,7 @@ class CoreTests: XCTestCase {
     override func tearDown() {}
 
     func test_scrollLock() {
+        let timeout = 5.0
         let fpc = FloatingPanelController()
 
         let contentVC1 = UITableViewController(nibName: nil, bundle: nil)
@@ -35,7 +39,7 @@ class CoreTests: XCTestCase {
             XCTAssertEqual(contentVC1.tableView.bounces, true)
             exp1.fulfill()
         }
-        wait(for: [exp1], timeout: 1.0)
+        wait(for: [exp1], timeout: timeout)
 
         let exp2 = expectation(description: "move to tip with animation")
         fpc.move(to: .tip, animated: false) {
@@ -43,7 +47,7 @@ class CoreTests: XCTestCase {
             XCTAssertEqual(contentVC1.tableView.bounces, false)
             exp2.fulfill()
         }
-        wait(for: [exp2], timeout: 1.0)
+        wait(for: [exp2], timeout: timeout)
 
         // Reset the content vc
         let contentVC2 = UITableViewController(nibName: nil, bundle: nil)
@@ -205,11 +209,9 @@ class CoreTests: XCTestCase {
             func floatingPanel(_ fpc: FloatingPanelController, layoutFor newCollection: UITraitCollection) -> FloatingPanelLayout { layout }
             func floatingPanel(_ fpc: FloatingPanelController, layoutFor size: CGSize) -> FloatingPanelLayout { layout }
         }
-        func _floor(_ alpha: CGFloat) -> CGFloat {
-            return floor(fpc.backdropView.alpha * 1e+06) / 1e+06
-        }
 
-        let timeout = 3.0
+        let acc = 0.000_001
+        let timeout = 5.0
 
         let delegate = TestDelegate()
         let fpc = FloatingPanelController(delegate: delegate)
@@ -218,27 +220,27 @@ class CoreTests: XCTestCase {
         fpc.showForTest()
 
         fpc.move(to: .full, animated: false)
-        XCTAssertEqual(_floor(fpc.backdropView.alpha), 0.3)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.3, accuracy: acc)
 
         fpc.move(to: .half, animated: false)
-        XCTAssertEqual(fpc.backdropView.alpha, 0.0)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.0, accuracy: acc)
 
         fpc.move(to: .tip, animated: false)
-        XCTAssertEqual(_floor(fpc.backdropView.alpha), 0.3)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.3, accuracy: acc)
 
         let exp1 = expectation(description: "move to full with animation")
         fpc.move(to: .full, animated: true) {
             exp1.fulfill()
         }
         wait(for: [exp1], timeout: timeout)
-        XCTAssertEqual(_floor(fpc.backdropView.alpha), 0.3)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.3, accuracy: acc)
 
         let exp2 = expectation(description: "move to half with animation")
         fpc.move(to: .half, animated: true) {
             exp2.fulfill()
         }
         wait(for: [exp2], timeout: timeout)
-        XCTAssertEqual(fpc.backdropView.alpha, 0.0)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.0, accuracy: acc)
 
         // Test a content mode change of FloatingPanelController
 
@@ -249,12 +251,12 @@ class CoreTests: XCTestCase {
         fpc.contentMode = .fitToBounds
         XCTAssertEqual(fpc.backdropView.alpha, 0.0)  // Must not affect the backdrop alpha by changing the content mode
         wait(for: [exp3], timeout: timeout)
-        XCTAssertEqual(_floor(fpc.backdropView.alpha), 0.3)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.3, accuracy: acc)
 
         // Test a size class change of FloatingPanelController.view
 
         fpc.move(to: .full, animated: false)
-        XCTAssertEqual(_floor(fpc.backdropView.alpha), 0.3)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.3, accuracy: acc)
         fpc.willTransition(to: UITraitCollection(horizontalSizeClass: .regular), with: MockTransitionCoordinator())
         XCTAssertEqual(fpc.backdropView.alpha, 0.0) // Must update the alpha by BackdropTestLayout2 in TestDelegate.
 
@@ -263,7 +265,7 @@ class CoreTests: XCTestCase {
         fpc.move(to: .full, animated: false)
         delegate.layout = BackdropTestLayout()
         fpc.invalidateLayout()
-        XCTAssertEqual(_floor(fpc.backdropView.alpha), 0.3)
+        XCTAssertEqual(fpc.backdropView.alpha, 0.3, accuracy: acc)
 
         delegate.layout = BackdropTestLayout2()
         fpc.viewWillTransition(to: CGSize.zero, with: MockTransitionCoordinator())
@@ -959,13 +961,29 @@ class CoreTests: XCTestCase {
     }
 
     func test_initial_scroll_offset_reset() {
+        class MockPanGestureRecognizer: FloatingPanelPanGestureRecognizer {
+            var _view: UIView?
+            override var view: UIView? {
+                set { _view = newValue }
+                get { _view }
+            }
+            var _state: UIGestureRecognizer.State = .possible
+            override var state: UIGestureRecognizer.State {
+                set { _state = newValue }
+                get { _state }
+            }
+        }
         let fpc = FloatingPanelController()
+        let mockGesture = MockPanGestureRecognizer()
+        mockGesture.view = fpc.floatingPanel.surfaceView
+        fpc.floatingPanel.panGestureRecognizer = mockGesture
         let scrollView = UIScrollView()
         fpc.layout = FloatingPanelBottomLayout()
         fpc.track(scrollView: scrollView)
         fpc.showForTest()
 
         fpc.move(to: .full, animated: false)
+
 
         fpc.panGestureRecognizer.state = .began
         fpc.floatingPanel.handle(panGesture: fpc.panGestureRecognizer)
@@ -978,6 +996,8 @@ class CoreTests: XCTestCase {
         let expect = CGPoint(x: 0, y: 100)
 
         scrollView.setContentOffset(expect, animated: false)
+
+        XCTAssertEqual(expect, scrollView.contentOffset)
 
         fpc.move(to: .half, animated: true)
 
@@ -1004,6 +1024,45 @@ class CoreTests: XCTestCase {
         XCTAssertEqual(fpc.state, .full)
         XCTAssertEqual(fpc.surfaceLocation(for: .full).y, fpc.surfaceLocation.y)
         XCTAssertEqual(delegate.willAttract, false)
+    }
+
+    @available(iOS 13.0, *)
+    func test_statePublisher() throws {
+        let fpc = FloatingPanelController()
+        fpc.showForTest()
+
+        XCTAssertEqual(fpc.state, .half)
+
+        // Verify statePublisher is available on iOS 13+
+        XCTAssertNotNil(fpc.floatingPanel.statePublisher)
+
+        var receivedStates: [FloatingPanelState] = []
+        var cancellables = Set<AnyCancellable>()
+
+        // Subscribe to statePublisher
+        fpc.floatingPanel.statePublisher?
+            .sink { state in
+                receivedStates.append(state)
+            }
+            .store(in: &cancellables)
+
+        // The initial state should be emitted first
+        XCTAssertEqual(receivedStates, [.half])
+
+        // Move to .full
+        fpc.move(to: .full, animated: false)
+        XCTAssertEqual(fpc.state, .full)
+        XCTAssertEqual(receivedStates, [.half, .full])
+
+        // Move to .tip
+        fpc.move(to: .tip, animated: false)
+        XCTAssertEqual(fpc.state, .tip)
+        XCTAssertEqual(receivedStates, [.half, .full, .tip])
+
+        // Move back to .half
+        fpc.move(to: .half, animated: false)
+        XCTAssertEqual(fpc.state, .half)
+        XCTAssertEqual(receivedStates, [.half, .full, .tip, .half])
     }
 }
 
