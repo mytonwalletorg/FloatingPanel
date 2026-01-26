@@ -1,5 +1,8 @@
 // Copyright 2018-Present Shin Yamamoto. All rights reserved. MIT license.
 
+#if canImport(Combine)
+import Combine
+#endif
 import UIKit
 import WebKit
 import os.log
@@ -91,7 +94,14 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
-    let panGestureRecognizer: FloatingPanelPanGestureRecognizer
+    @available(iOS 13.0, *)
+    private(set) var statePublisher: CurrentValueSubject<FloatingPanelState, Never>? {
+        get { _statePublisher as? CurrentValueSubject<FloatingPanelState, Never> }
+        set { _statePublisher = newValue }
+    }
+    private var _statePublisher: Any?
+
+    var panGestureRecognizer: FloatingPanelPanGestureRecognizer
     let panGestureDelegateRouter: FloatingPanelPanGestureRecognizer.DelegateRouter
     var isRemovalInteractionEnabled: Bool = false
 
@@ -139,6 +149,10 @@ class Core: NSObject, UIGestureRecognizerDelegate {
 
         super.init()
 
+        if #available(iOS 13.0, *) {
+            statePublisher = .init(.hidden)
+        }
+
         panGestureRecognizer.set(floatingPanel: self)
         surfaceView.addGestureRecognizer(panGestureRecognizer)
         panGestureRecognizer.addTarget(self, action: #selector(handle(panGesture:)))
@@ -159,11 +173,28 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         self.moveAnimator?.stopAnimation(false)
     }
 
-    func move(to: FloatingPanelState, animated: Bool, completion: (() -> Void)? = nil) {
-        move(from: state, to: to, animated: animated, completion: completion)
+    func move(
+        to: FloatingPanelState,
+        animated: Bool,
+        moveAnimator: UIViewPropertyAnimator? = nil,
+        completion: (() -> Void)? = nil
+    ) {
+        move(
+            from: state,
+            to: to,
+            animated: animated,
+            moveAnimator: moveAnimator,
+            completion: completion
+        )
     }
 
-    private func move(from: FloatingPanelState, to: FloatingPanelState, animated: Bool, completion: (() -> Void)? = nil) {
+    private func move(
+        from: FloatingPanelState,
+        to: FloatingPanelState,
+        animated: Bool,
+        moveAnimator: UIViewPropertyAnimator?,
+        completion: (() -> Void)? = nil
+    ) {
         assert(layoutAdapter.validStates.contains(to), "Can't move to '\(to)' state because it's not valid in the layout")
         guard let vc = ownerVC else {
             completion?()
@@ -196,12 +227,15 @@ class Core: NSObject, UIGestureRecognizerDelegate {
                 let animationVector = CGVector(dx: abs(removalVector.dx), dy: abs(removalVector.dy))
                 animator = vc.animatorForDismissing(with: animationVector)
             default:
-                startAttraction(to: to, with: .zero) { [weak self] in
-                    self?.endAttraction(false)
-                    updateScrollView()
-                    completion?()
+                guard let moveAnimator = moveAnimator else {
+                    startAttraction(to: to, with: .zero) { [weak self] in
+                        self?.endAttraction(false)
+                        updateScrollView()
+                        completion?()
+                    }
+                    return
                 }
-                return
+                animator = moveAnimator
             }
 
             let shouldDoubleLayout = from == .hidden
@@ -283,6 +317,9 @@ class Core: NSObject, UIGestureRecognizerDelegate {
         layoutAdapter.activateLayout(for: target, forceLayout: true)
         backdropView.alpha = getBackdropAlpha(for: target)
         adjustScrollContentInsetIfNeeded()
+        if #available(iOS 13.0, *) {
+            statePublisher?.send(target)
+        }
     }
 
     private func getBackdropAlpha(for target: FloatingPanelState) -> CGFloat {
@@ -1335,7 +1372,7 @@ class Core: NSObject, UIGestureRecognizerDelegate {
 }
 
 /// A gesture recognizer that looks for panning (dragging) gestures in a panel.
-public final class FloatingPanelPanGestureRecognizer: UIPanGestureRecognizer {
+public class FloatingPanelPanGestureRecognizer: UIPanGestureRecognizer {
     /// The gesture starting location in the surface view which it is attached to.
     fileprivate var initialLocation: CGPoint = .zero
     private weak var floatingPanel: Core!  //  Core has this gesture recognizer as non-optional
